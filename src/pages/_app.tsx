@@ -63,6 +63,7 @@ import {
 import * as Icons from '@fortawesome/free-brands-svg-icons'
 
 import type { AppProps } from 'next/app'
+import dynamic from 'next/dynamic'  
 import NextNProgress from 'nextjs-progressbar'
 import { appWithTranslation } from 'next-i18next'
 
@@ -83,41 +84,41 @@ library.add(
   faFileCode,
   faFileAlt,
   faFile,
-  faFlag,
   faFolder,
+  faCopy,
+  faArrowAltCircleDown,
+  faTrashAlt,
+  faEnvelope,
+  faFlag,
+  faCheckCircle,
+  faSearch,
+  faPen,
+  faCheck,
+  faPlus,
+  faMinus,
+  faCopySolid,
+  faAngleRight,
+  faDownload,
   faMusic,
   faArrowLeft,
   faArrowRight,
-  faAngleRight,
   faFileDownload,
-  faCopy,
-  faCopySolid,
-  faPlus,
-  faMinus,
-  faDownload,
-  faLink,
   faUndo,
   faBook,
-  faArrowAltCircleDown,
   faKey,
-  faTrashAlt,
   faSignOutAlt,
-  faEnvelope,
   faCloud,
   faChevronCircleDown,
+  faChevronDown,
+  faLink,
   faExternalLinkAlt,
   faExclamationCircle,
   faExclamationTriangle,
-  faHome,
-  faCheck,
-  faCheckCircle,
-  faSearch,
-  faChevronDown,
   faTh,
   faThLarge,
   faThList,
+  faHome,
   faLanguage,
-  faPen,
   faCube,
   ...iconList
 )
@@ -125,10 +126,17 @@ library.add(
 function MyApp({ Component, pageProps }: AppProps) {
   return (
     <>
-      <NextNProgress height={1} color="rgb(156, 163, 175, 0.9)" options={{ showSpinner: false }} />
-      <Analytics />
+      <NextNProgress />
       <Component {...pageProps} />
+      <Analytics />
     </>
   )
 }
-export default appWithTranslation(MyApp)
+
+// 使用动态导入包装整个应用，禁用SSR
+const NoSSRApp = dynamic(() => Promise.resolve(MyApp), {
+  ssr: false
+})
+
+// appWithTranslation HOC应用于无SSR的包装组件
+export default appWithTranslation(NoSSRApp)

@@ -1,7 +1,7 @@
 import type { OdFileObject } from '../../types'
 import { FC, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 
-import ReactAudioPlayer from 'react-audio-player'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useTranslation } from 'next-i18next'
 import { useRouter } from 'next/router'
@@ -11,6 +11,11 @@ import { DownloadBtnContainer, PreviewContainer } from './Containers'
 import { LoadingIcon } from '../Loading'
 import { formatModifiedDateTime } from '../../utils/fileDetails'
 import { getStoredToken } from '../../utils/protectedRouteHandler'
+
+// 动态导入ReactAudioPlayer并禁用SSR
+const ReactAudioPlayer = dynamic(() => import('react-audio-player'), {
+  ssr: false,
+})
 
 enum PlayerState {
   Loading,
@@ -24,7 +29,7 @@ const AudioPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   const { asPath } = useRouter()
   const hashedToken = getStoredToken(asPath)
 
-  const rapRef = useRef<ReactAudioPlayer>(null)
+  const rapRef = useRef<any>(null)
   const [playerStatus, setPlayerStatus] = useState(PlayerState.Loading)
   const [playerVolume, setPlayerVolume] = useState(1)
 
@@ -33,6 +38,8 @@ const AudioPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   const [brokenThumbnail, setBrokenThumbnail] = useState(false)
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    
     // Manually get the HTML audio element and set onplaying event.
     // - As the default event callbacks provided by the React component does not guarantee playing state to be set
     // - properly when the user seeks through the timeline or the audio is buffered.
@@ -94,14 +101,17 @@ const AudioPreview: FC<{ file: OdFileObject }> = ({ file }) => {
               </div>
             </div>
 
-            <ReactAudioPlayer
-              className="h-11 w-full"
-              src={`/api/raw/?path=${asPath}${hashedToken ? `&odpt=${hashedToken}` : ''}`}
-              ref={rapRef}
-              controls
-              preload="auto"
-              volume={playerVolume}
-            />
+            {typeof window !== 'undefined' && (
+              <ReactAudioPlayer
+                className="h-11 w-full"
+                src={`/api/raw/?path=${asPath}${hashedToken ? `&odpt=${hashedToken}` : ''}`}
+                // @ts-ignore
+                ref={rapRef}
+                controls
+                preload="auto"
+                volume={playerVolume}
+              />
+            )}
           </div>
         </div>
       </PreviewContainer>

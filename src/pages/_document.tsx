@@ -6,10 +6,11 @@ class MyDocument extends Document {
     return (
       <Html>
         <Head>
-          <meta name="description" content="OneDrive Index" />
+          <meta name="description" content="AnyCloudDrive Index" />
           <link rel="icon" href="/favicon.ico" />
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+          <meta name="next-head-count" data-no-ssr="true" content="true" />
           {siteConfig.googleFontLinks.map(link => (
             <link key={link} rel="stylesheet" href={link} />
           ))}
@@ -17,6 +18,16 @@ class MyDocument extends Document {
         <body>
           <Main />
           <NextScript />
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                window.__NEXT_HYDRATION_MARK_TIME = Date.now();
+                window.__NEXT_DATA__.props = window.__NEXT_DATA__.props || {};
+                window.__NEXT_DATA__.opts = window.__NEXT_DATA__.opts || {};
+                window.__NEXT_DATA__.opts.unstable_skipClientCache = true;
+              `,
+            }}
+          />
         </body>
       </Html>
     )

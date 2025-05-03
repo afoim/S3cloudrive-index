@@ -25,25 +25,25 @@ import { layouts } from './SwitchLayout'
 import Loading, { LoadingIcon } from './Loading'
 import FourOhFour from './FourOhFour'
 import Auth from './Auth'
-import TextPreview from './previews/TextPreview'
-import MarkdownPreview from './previews/MarkdownPreview'
-import CodePreview from './previews/CodePreview'
-import OfficePreview from './previews/OfficePreview'
-import AudioPreview from './previews/AudioPreview'
-import VideoPreview from './previews/VideoPreview'
-import PDFPreview from './previews/PDFPreview'
-import URLPreview from './previews/URLPreview'
-import ImagePreview from './previews/ImagePreview'
-import DefaultPreview from './previews/DefaultPreview'
+import { createDynamicComponent } from '../utils/dynamicImport'
+
+// 动态导入预览组件，禁用SSR
+const TextPreview = createDynamicComponent(() => import('./previews/TextPreview'), '加载文本预览...')
+const MarkdownPreview = createDynamicComponent(() => import('./previews/MarkdownPreview'), '加载Markdown预览...')
+const CodePreview = createDynamicComponent(() => import('./previews/CodePreview'), '加载代码预览...')
+const OfficePreview = createDynamicComponent(() => import('./previews/OfficePreview'), '加载Office预览...')
+const AudioPreview = createDynamicComponent(() => import('./previews/AudioPreview'), '加载音频预览...')
+const VideoPreview = createDynamicComponent(() => import('./previews/VideoPreview'), '加载视频预览...')
+const PDFPreview = createDynamicComponent(() => import('./previews/PDFPreview'), '加载PDF预览...')
+const URLPreview = createDynamicComponent(() => import('./previews/URLPreview'), '加载URL预览...')
+const ImagePreview = createDynamicComponent(() => import('./previews/ImagePreview'), '加载图片预览...')
+const DefaultPreview = createDynamicComponent(() => import('./previews/DefaultPreview'), '加载默认预览...')
+const EPUBPreview = createDynamicComponent(() => import('./previews/EPUBPreview'), '加载EPUB预览...')
+
 import { PreviewContainer } from './previews/Containers'
 
 import FolderListLayout from './FolderListLayout'
 import FolderGridLayout from './FolderGridLayout'
-
-// Disabling SSR for some previews
-const EPUBPreview = dynamic(() => import('./previews/EPUBPreview'), {
-  ssr: false,
-})
 
 /**
  * Convert url query into path string

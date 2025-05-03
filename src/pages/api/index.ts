@@ -1,90 +1,22 @@
 import { posix as pathPosix } from 'path'
-
 import type { NextApiRequest, NextApiResponse } from 'next'
 import axios from 'axios'
+import cors from 'cors'
 
-import apiConfig from '../../../config/api.config'
+import s3Config from '../../../config/s3.config'
 import siteConfig from '../../../config/site.config'
-import { revealObfuscatedToken } from '../../utils/oAuthHandler'
 import { compareHashedToken } from '../../utils/protectedRouteHandler'
-import { getOdAuthTokens, storeOdAuthTokens } from '../../utils/odAuthTokenStore'
 import { runCorsMiddleware } from './raw'
-
-const basePath = pathPosix.resolve('/', process.env.BASE_DIRECTORY || '/')
-const clientId = process.env.CLIENT_ID || ''
-const clientSecret = revealObfuscatedToken(process.env.CLIENT_SECRET || '')
+import * as s3Service from '../../utils/s3Service'
 
 /**
- * Encode the path of the file relative to the base directory
- *
- * @param path Relative path of the file to the base directory
- * @returns Absolute path of the file inside OneDrive
- */
-export function encodePath(path: string): string {
-  let encodedPath = pathPosix.join(basePath, path)
-  if (encodedPath === '/' || encodedPath === '') {
-    return ''
-  }
-  encodedPath = encodedPath.replace(/\/$/, '')
-  return `:${encodeURIComponent(encodedPath)}`
-}
-
-/**
- * Fetch the access token from Redis storage and check if the token requires a renew
- *
- * @returns Access token for OneDrive API
- */
-export async function getAccessToken(): Promise<string> {
-  const { accessToken, refreshToken } = await getOdAuthTokens()
-
-  // Return in storage access token if it is still valid
-  if (typeof accessToken === 'string') {
-    console.log('Fetch access token from storage.')
-    return accessToken
-  }
-
-  // Return empty string if no refresh token is stored, which requires the application to be re-authenticated
-  if (typeof refreshToken !== 'string') {
-    console.log('No refresh token, return empty access token.')
-    return ''
-  }
-
-  // Fetch new access token with in storage refresh token
-  const body = new URLSearchParams()
-  body.append('client_id', clientId)
-  body.append('redirect_uri', apiConfig.redirectUri)
-  body.append('client_secret', clientSecret)
-  body.append('refresh_token', refreshToken)
-  body.append('grant_type', 'refresh_token')
-
-  const resp = await axios.post(apiConfig.authApi, body, {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-  })
-
-  if ('access_token' in resp.data && 'refresh_token' in resp.data) {
-    const { expires_in, access_token, refresh_token } = resp.data
-    await storeOdAuthTokens({
-      accessToken: access_token,
-      accessTokenExpiry: parseInt(expires_in),
-      refreshToken: refresh_token,
-    })
-    console.log('Fetch new access token with stored refresh token.')
-    return access_token
-  }
-
-  return ''
-}
-
-/**
- * Match protected routes in site config to get path to required auth token
- * @param path Path cleaned in advance
- * @returns Path to required auth token. If not required, return empty string.
+ * 获取路径对应的认证令牌路径
+ * @param path 路径
+ * @returns 认证令牌路径
  */
 export function getAuthTokenPath(path: string) {
-  // Ensure trailing slashes to compare paths component by component. Same for protectedRoutes.
-  // Since OneDrive ignores case, lower case before comparing. Same for protectedRoutes.
+  // 确保路径以斜杠结尾以进行组件比较。对于受保护的路径也是如此。
+  // 由于S3不区分大小写，因此在比较前转换为小写。对于受保护的路径也是如此。
   path = path.toLowerCase() + '/'
   const protectedRoutes = siteConfig.protectedRoutes as string[]
   let authTokenPath = ''
@@ -100,194 +32,170 @@ export function getAuthTokenPath(path: string) {
 }
 
 /**
- * Handles protected route authentication:
- * - Match the cleanPath against an array of user defined protected routes
- * - If a match is found:
- * - 1. Download the .password file stored inside the protected route and parse its contents
- * - 2. Check if the od-protected-token header is present in the request
- * - The request is continued only if these two contents are exactly the same
- *
- * @param cleanPath Sanitised directory path, used for matching whether route is protected
- * @param accessToken OneDrive API access token
- * @param req Next.js request object
- * @param res Next.js response object
+ * 检查认证路由
+ * @param cleanPath 清理后的路径
+ * @param odTokenHeader 请求头中的认证令牌
  */
 export async function checkAuthRoute(
   cleanPath: string,
-  accessToken: string,
   odTokenHeader: string
 ): Promise<{ code: 200 | 401 | 404 | 500; message: string }> {
-  // Handle authentication through .password
+  // 处理通过.password的认证
   const authTokenPath = getAuthTokenPath(cleanPath)
 
-  // Fetch password from remote file content
+  // 从远程文件内容获取密码
   if (authTokenPath === '') {
     return { code: 200, message: '' }
   }
 
   try {
-    const token = await axios.get(`${apiConfig.driveApi}/root${encodePath(authTokenPath)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      params: {
-        select: '@microsoft.graph.downloadUrl,file',
-      },
-    })
+    // 检查密码文件是否存在
+    const passwordFileExists = await s3Service.checkFileExists(authTokenPath)
+    if (!passwordFileExists) {
+      return { code: 404, message: "您尚未设置密码。" }
+    }
 
-    // Handle request and check for header 'od-protected-token'
-    const odProtectedToken = await axios.get(token.data['@microsoft.graph.downloadUrl'])
-    // console.log(odTokenHeader, odProtectedToken.data.trim())
+    // 获取密码文件内容
+    const passwordContent = await s3Service.getFileContent(authTokenPath)
 
+    // 处理请求并检查请求头'od-protected-token'
     if (
       !compareHashedToken({
         odTokenHeader: odTokenHeader,
-        dotPassword: odProtectedToken.data.toString(),
+        dotPassword: passwordContent.toString(),
       })
     ) {
-      return { code: 401, message: 'Password required.' }
+      return { code: 401, message: '需要密码。' }
     }
   } catch (error: any) {
-    // Password file not found, fallback to 404
-    if (error?.response?.status === 404) {
-      return { code: 404, message: "You didn't set a password." }
-    } else {
-      return { code: 500, message: 'Internal server error.' }
-    }
+    console.error('访问密码文件时出错:', error)
+    return { code: 500, message: '服务器内部错误。' }
   }
 
-  return { code: 200, message: 'Authenticated.' }
+  return { code: 200, message: '已认证。' }
 }
 
+/**
+ * 处理API请求
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // If method is POST, then the API is called by the client to store acquired tokens
+  // 如果方法是POST（这个项目中不需要POST方法，但保留接口兼容性）
   if (req.method === 'POST') {
-    const { obfuscatedAccessToken, accessTokenExpiry, obfuscatedRefreshToken } = req.body
-    const accessToken = revealObfuscatedToken(obfuscatedAccessToken)
-    const refreshToken = revealObfuscatedToken(obfuscatedRefreshToken)
-
-    if (typeof accessToken !== 'string' || typeof refreshToken !== 'string') {
-      res.status(400).send('Invalid request body')
-      return
-    }
-
-    await storeOdAuthTokens({ accessToken, accessTokenExpiry, refreshToken })
-    res.status(200).send('OK')
+    res.status(405).json({ error: '不支持的请求方法' })
     return
   }
 
-  // If method is GET, then the API is a normal request to the OneDrive API for files or folders
+  // 如果方法是GET，这是用于请求文件或文件夹的正常请求
   const { path = '/', raw = false, next = '', sort = '' } = req.query
 
-  // Set edge function caching for faster load times, check docs:
-  // https://vercel.com/docs/concepts/functions/edge-caching
-  res.setHeader('Cache-Control', apiConfig.cacheControlHeader)
+  // 设置边缘函数缓存以加快加载时间
+  res.setHeader('Cache-Control', s3Config.cacheControlHeader)
 
-  // Sometimes the path parameter is defaulted to '[...path]' which we need to handle
+  // 有时路径参数默认为'[...path]'，我们需要处理
   if (path === '[...path]') {
-    res.status(400).json({ error: 'No path specified.' })
+    res.status(400).json({ error: '未指定路径。' })
     return
   }
-  // If the path is not a valid path, return 400
+  // 如果路径不是有效路径，返回400
   if (typeof path !== 'string') {
-    res.status(400).json({ error: 'Path query invalid.' })
+    res.status(400).json({ error: '路径查询无效。' })
     return
   }
-  // Besides normalizing and making absolute, trailing slashes are trimmed
+  // 除了规范化和绝对化外，还会修剪尾部斜杠
   const cleanPath = pathPosix.resolve('/', pathPosix.normalize(path)).replace(/\/$/, '')
 
-  // Validate sort param
+  // 验证排序参数
   if (typeof sort !== 'string') {
-    res.status(400).json({ error: 'Sort query invalid.' })
+    res.status(400).json({ error: '排序查询无效。' })
     return
   }
 
-  const accessToken = await getAccessToken()
-
-  // Return error 403 if access_token is empty
-  if (!accessToken) {
-    res.status(403).json({ error: 'No access token.' })
-    return
-  }
-
-  // Handle protected routes authentication
-  const { code, message } = await checkAuthRoute(cleanPath, accessToken, req.headers['od-protected-token'] as string)
-  // Status code other than 200 means user has not authenticated yet
+  // 处理受保护路由认证
+  const { code, message } = await checkAuthRoute(cleanPath, req.headers['od-protected-token'] as string)
+  // 状态码不是200表示用户尚未认证
   if (code !== 200) {
     res.status(code).json({ error: message })
     return
   }
-  // If message is empty, then the path is not protected.
-  // Conversely, protected routes are not allowed to serve from cache.
+  // 如果消息为空，则路径不受保护。
+  // 相反，受保护的路由不允许从缓存中提供服务。
   if (message !== '') {
     res.setHeader('Cache-Control', 'no-cache')
   }
 
-  const requestPath = encodePath(cleanPath)
-  // Handle response from OneDrive API
-  const requestUrl = `${apiConfig.driveApi}/root${requestPath}`
-  // Whether path is root, which requires some special treatment
-  const isRoot = requestPath === ''
+  // 判断路径是否为根目录，需要特殊处理
+  const isRoot = cleanPath === ''
 
-  // Go for file raw download link, add CORS headers, and redirect to @microsoft.graph.downloadUrl
-  // (kept here for backwards compatibility, and cache headers will be reverted to no-cache)
+  // 获取文件原始下载链接，添加CORS头，并重定向到下载URL
   if (raw) {
     await runCorsMiddleware(req, res)
     res.setHeader('Cache-Control', 'no-cache')
 
-    const { data } = await axios.get(requestUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      params: {
-        // OneDrive international version fails when only selecting the downloadUrl (what a stupid bug)
-        select: 'id,@microsoft.graph.downloadUrl',
-      },
-    })
+    try {
+      // 检查文件是否存在
+      const fileDetails = await s3Service.getFileDetails(cleanPath)
+      if (!fileDetails) {
+        res.status(404).json({ error: '文件不存在。' })
+        return
+      }
 
-    if ('@microsoft.graph.downloadUrl' in data) {
-      res.redirect(data['@microsoft.graph.downloadUrl'])
-    } else {
-      res.status(404).json({ error: 'No download url found.' })
+      // 获取文件下载URL
+      const downloadUrl = await s3Service.getFileDownloadUrl(cleanPath)
+      res.redirect(downloadUrl)
+    } catch (error) {
+      console.error('获取下载URL时出错:', error)
+      res.status(500).json({ error: '获取下载URL时出错。' })
     }
     return
   }
 
-  // Querying current path identity (file or folder) and follow up query childrens in folder
+  // 查询当前路径身份（文件或文件夹）并进一步查询文件夹中的子项
   try {
-    const { data: identityData } = await axios.get(requestUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      params: {
-        select: 'name,size,id,lastModifiedDateTime,folder,file,video,image',
-      },
-    })
-
-    if ('folder' in identityData) {
-      const { data: folderData } = await axios.get(`${requestUrl}${isRoot ? '' : ':'}/children`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: {
-          ...{
-            select: 'name,size,id,lastModifiedDateTime,folder,file,video,image',
-            $top: siteConfig.maxItems,
-          },
-          ...(next ? { $skipToken: next } : {}),
-          ...(sort ? { $orderby: sort } : {}),
-        },
-      })
-
-      // Extract next page token from full @odata.nextLink
-      const nextPage = folderData['@odata.nextLink']
-        ? folderData['@odata.nextLink'].match(/&\$skiptoken=(.+)/i)[1]
-        : null
-
-      // Return paging token if specified
-      if (nextPage) {
-        res.status(200).json({ folder: folderData, next: nextPage })
-      } else {
-        res.status(200).json({ folder: folderData })
-      }
+    // 先检查是否是文件
+    const fileDetails = await s3Service.getFileDetails(cleanPath)
+    
+    if (fileDetails) {
+      // 是文件，返回文件信息
+      res.status(200).json({ file: {
+        id: fileDetails.path,
+        name: fileDetails.name,
+        size: fileDetails.size,
+        lastModifiedDateTime: fileDetails.lastModifiedDateTime,
+        file: {}
+      }})
       return
     }
-    res.status(200).json({ file: identityData })
+    
+    // 不是文件，尝试当作目录列出内容
+    const { objects, nextToken } = await s3Service.listDirectory(
+      cleanPath, 
+      typeof next === 'string' && next.trim() !== '' ? next : undefined
+    )
+    
+    // 构造返回数据
+    const folderData = {
+      value: objects.map(object => ({
+        id: object.path,
+        name: object.name,
+        size: object.size,
+        lastModifiedDateTime: object.lastModifiedDateTime,
+        ...(object.file 
+          ? { file: {}, parentReference: { path: cleanPath } } 
+          : { folder: { childCount: 0 }, parentReference: { path: cleanPath } }
+        )
+      }))
+    }
+    
+    // 返回分页令牌（如果有）
+    if (nextToken) {
+      res.status(200).json({ folder: folderData, next: nextToken })
+    } else {
+      res.status(200).json({ folder: folderData })
+    }
     return
   } catch (error: any) {
-    res.status(error?.response?.code ?? 500).json({ error: error?.response?.data ?? 'Internal server error.' })
+    console.error('列出目录或获取文件信息时出错:', error)
+    res.status(500).json({ error: '服务器内部错误。' })
     return
   }
 }

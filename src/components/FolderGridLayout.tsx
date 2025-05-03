@@ -1,7 +1,7 @@
 import type { OdFolderChildren } from '../types'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useClipboard } from 'use-clipboard-copy'
 import { useTranslation } from 'next-i18next'
@@ -19,24 +19,47 @@ const GridItem = ({ c, path }: { c: OdFolderChildren; path: string }) => {
 
   // Some thumbnails are broken, so we check for onerror event in the image component
   const [brokenThumbnail, setBrokenThumbnail] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [aspectRatio, setAspectRatio] = useState('56.25%') // 默认16:9比例
+
+  useEffect(() => {
+    // 当缩略图更改时重置状态
+    setBrokenThumbnail(false)
+    setImageLoaded(false)
+  }, [thumbnailUrl])
+
+  // 处理图片加载完成事件
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget
+    // 计算图片宽高比
+    if (img.naturalWidth && img.naturalHeight) {
+      const ratio = (img.naturalHeight / img.naturalWidth) * 100
+      setAspectRatio(`${ratio}%`)
+    }
+    setImageLoaded(true)
+  }
 
   return (
     <div className="space-y-2">
-      <div className="h-32 overflow-hidden rounded border border-gray-900/10 dark:border-gray-500/30">
+      <div className="relative w-full overflow-hidden rounded border border-gray-900/10 dark:border-gray-500/30" 
+           style={{ paddingBottom: aspectRatio }}>
         {thumbnailUrl && !brokenThumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            className="h-full w-full object-cover object-top"
+            className={`absolute top-0 left-0 h-full w-full object-contain transition-opacity duration-200 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
             src={thumbnailUrl}
             alt={c.name}
             onError={() => setBrokenThumbnail(true)}
+            onLoad={handleImageLoad}
           />
         ) : (
-          <div className="relative flex h-full w-full items-center justify-center rounded-lg">
+          <div className="absolute top-0 left-0 flex h-full w-full items-center justify-center rounded-lg">
             <ChildIcon child={c} />
-            <span className="absolute bottom-0 right-0 m-1 font-medium text-gray-700 dark:text-gray-500">
-              {c.folder?.childCount}
-            </span>
+            {'folder' in c && (
+              <span className="absolute bottom-0 right-0 m-1 font-medium text-gray-700 dark:text-gray-500">
+                {c.folder?.childCount}
+              </span>
+            )}
           </div>
         )}
       </div>

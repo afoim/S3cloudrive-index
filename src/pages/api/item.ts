@@ -1,36 +1,40 @@
-import axios from 'axios'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { getAccessToken } from '.'
-import apiConfig from '../../../config/api.config'
+import s3Config from '../../../config/s3.config'
+import * as s3Service from '../../utils/s3Service'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Get access token from storage
-  const accessToken = await getAccessToken()
-
-  // Get item details (specifically, its path) by its unique ID in OneDrive
+  // 获取项目详情（具体来说，是通过其路径）
   const { id = '' } = req.query
 
-  // Set edge function caching for faster load times, check docs:
-  // https://vercel.com/docs/concepts/functions/edge-caching
-  res.setHeader('Cache-Control', apiConfig.cacheControlHeader)
+  // 设置边缘函数缓存以加快加载时间
+  res.setHeader('Cache-Control', s3Config.cacheControlHeader)
 
   if (typeof id === 'string') {
-    const itemApi = `${apiConfig.driveApi}/items/${id}`
-
     try {
-      const { data } = await axios.get(itemApi, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: {
-          select: 'id,name,parentReference',
-        },
-      })
-      res.status(200).json(data)
+      // 在S3实现中，id实际上等同于路径
+      const fileDetails = await s3Service.getFileDetails(id)
+      
+      if (fileDetails) {
+        // 从路径中提取父目录信息
+        const parentPath = id.substring(0, id.lastIndexOf('/'))
+        
+        res.status(200).json({
+          id: fileDetails.path,
+          name: fileDetails.name,
+          parentReference: {
+            path: parentPath || '/',
+          },
+        })
+      } else {
+        res.status(404).json({ error: '找不到指定的项目。' })
+      }
     } catch (error: any) {
-      res.status(error?.response?.status ?? 500).json({ error: error?.response?.data ?? 'Internal server error.' })
+      console.error('获取项目信息时出错:', error)
+      res.status(500).json({ error: '服务器内部错误。' })
     }
   } else {
-    res.status(400).json({ error: 'Invalid driveItem ID.' })
+    res.status(400).json({ error: '无效的项目ID。' })
   }
   return
 }

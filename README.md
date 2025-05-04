@@ -1,4 +1,4 @@
-# S3clouddrive-Index (One-Click Deploy with Vercel)
+# S3cloudrive-Index (One-Click Deploy with Vercel)
 
 一个S3 API，使用Vercel Function获得文件列表展示给前端用于下载。只需在Vercel配置S3 API环境变量以及站点标题即可使用
 

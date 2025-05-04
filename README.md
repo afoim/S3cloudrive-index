@@ -4,6 +4,7 @@
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/afoim/S3cloudrive-index&env=S3_ENDPOINT,S3_REGION,S3_BUCKET,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY,S3_ROOT_DIRECTORY,NEXT_PUBLIC_SITE_TITLE)
 
+如果一键部署不可用请按照 `.env.example` 设置你的环境变量传递给Vercel
 
 ## License
 

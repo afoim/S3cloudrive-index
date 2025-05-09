@@ -6,6 +6,14 @@
 
 如果一键部署不可用请按照 `env.example` 设置你的环境变量传递给Vercel
 
+# 构建参数
+
+- Build Command: `pnpm build`
+
+- Output Directory: `.next`
+
+- Install Command: `pnpm install` 或 `pnpm install --no-frozen-lockfile --prefer-offline`
+
 ## License
 
 [MIT License](LICENSE)

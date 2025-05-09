@@ -3,11 +3,11 @@
  */
 module.exports = {
   // S3 配置
-  endpoint: process.env.S3_ENDPOINT || 'https://ny-1s.enzonix.com',
-  region: process.env.S3_REGION || 'us-east-1',
-  bucket: process.env.S3_BUCKET || 'bucket-1812-2434',
-  accessKeyId: process.env.S3_ACCESS_KEY_ID || '1812kP8lxiNOA5',
-  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || 'HoephXxSaQZ47UrBHXo63bNJKM4jyldOebaHmDe6',
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION,
+  bucket: process.env.S3_BUCKET,
+  accessKeyId: process.env.S3_ACCESS_KEY_ID,
+  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
   rootDirectory: process.env.S3_ROOT_DIRECTORY || '/',
   
   // 缓存控制
